@@ -20,6 +20,52 @@ const doUserTask = async (cloudClient, logger) => {
   const result = await cloudClient.userSign()
   const netdiskBonus = result.isSign? 0: result.netdiskBonus
   logger.info(`个人签到任务: 获得 ${netdiskBonus}M 空间`);
+
+  // 天天抽红包
+  await delay(3000);
+  try {
+    const res2 = await cloudClient.taskSign();
+    if (res2.errorCode === "User_Not_Chance") {
+      logger.info(`第1次抽奖失败: 次数不足`);
+    } else {
+      logger.info(`第1次抽奖成功: 获得 ${res2.prizeName}`);
+    }
+  } catch (e) {
+    logger.error(`第1次抽奖出错: ${e.message || e}`);
+  }
+
+  // 自动备份抽红包
+  await delay(3000);
+  try {
+    const res3 = await cloudClient.taskPhoto();
+    if (res3.errorCode === "User_Not_Chance") {
+      logger.info(`第2次抽奖失败: 次数不足`);
+    } else {
+      logger.info(`第2次抽奖成功: 获得 ${res3.prizeName}`);
+    }
+  } catch (e) {
+    logger.error(`第2次抽奖出错: ${e.message || e}`);
+  }
+};
+
+// 家庭签到
+const doFamilyTask = async (cloudClient, logger) => {
+  try {
+    const { familyInfoResp } = await cloudClient.getFamilyList();
+    if (familyInfoResp) {
+      for (let index = 0; index < familyInfoResp.length; index += 1) {
+        const { familyId } = familyInfoResp[index];
+        const res = await cloudClient.familyUserSign(familyId);
+        logger.info(
+          `家庭任务${res.signStatus ? "已经签到过了，" : ""}签到获得${
+            res.bonusSpace
+          }M空间`
+        );
+      }
+    }
+  } catch (e) {
+    logger.error(`家庭签到出错: ${e.message || e}`);
+  }
 };
 
 const run = async (userName, password, userSizeInfoMap, logger) => {
@@ -39,6 +85,7 @@ const run = async (userName, password, userSizeInfoMap, logger) => {
         logger,
       });
       await Promise.all([doUserTask(cloudClient, logger)]);
+      await doFamilyTask(cloudClient, logger);
     } catch (e) {
       if (e.response) {
         logger.log(`请求失败: ${e.response.statusCode}, ${e.response.body}`);

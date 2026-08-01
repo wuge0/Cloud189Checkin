@@ -49,6 +49,27 @@ jobs:
       - name: 📡 Init dependencies
         run: npm install
 
+      - name: ✅ Validate accounts
+        run: |
+          node -e "
+          require('dotenv').config();
+          const accounts = require('./accounts');
+          if (!accounts || accounts.length === 0) {
+            console.error('ERROR: No accounts configured. Please set TY_ACCOUNTS or TY_USERNAME_1/TY_PASSWORD_1 in GitHub Secrets.');
+            process.exit(1);
+          }
+          const valid = accounts.filter(a => {
+            const u = a.username || a.userName;
+            const p = a.password;
+            return u && p && u !== 'userName' && p !== 'password';
+          });
+          if (valid.length === 0) {
+            console.error('ERROR: All accounts have placeholder credentials. Please update GitHub Secrets with real username/password.');
+            process.exit(1);
+          }
+          console.log('Found ' + valid.length + ' valid account(s)');
+          "
+
       - name: 🚀 Run
         uses: nick-fields/retry@master
         with:
