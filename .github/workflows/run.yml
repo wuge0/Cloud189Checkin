@@ -47,6 +47,8 @@ jobs:
 
       # 只注入签到真正需要的凭据（本仓库仅有 TY_ACCOUNTS 一项），
       # 不再用 toJSON(secrets) 把全部 secret 倒进 .env。
+      # accounts.js 直接 JSON.parse(process.env.TY_ACCOUNTS)，所以走 GITHUB_ENV，
+      # 避免 .env 的引号转义把 JSON 弄坏（dotenv 不会还原 \" 转义）。
       - name: 🔧 Init secrets
         env:
           TY_ACCOUNTS: ${{ secrets.TY_ACCOUNTS }}
@@ -55,7 +57,11 @@ jobs:
             echo "::error::缺少 TY_ACCOUNTS（Settings → Secrets → Actions）"
             exit 1
           fi
-          node -e "require('fs').writeFileSync('.env', 'TY_ACCOUNTS=' + JSON.stringify(process.env.TY_ACCOUNTS) + '\n')"
+          {
+            echo "TY_ACCOUNTS<<__TY_ACCOUNTS_EOF__"
+            printf '%s\n' "$TY_ACCOUNTS"
+            echo "__TY_ACCOUNTS_EOF__"
+          } >> "$GITHUB_ENV"
 
       - name: 📡 Init dependencies
         run: npm install
