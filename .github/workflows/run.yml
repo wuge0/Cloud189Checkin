@@ -8,19 +8,26 @@ on:
   workflow_dispatch:
   schedule:
     - cron: 35 2 * * *
+
+# Keep Running 步骤需要往仓库 push 空提交，沿用 checkout 持久化的凭据即可，
+# 不再把 github.token 拼进 remote URL。
+permissions:
+  contents: write
+
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
     environment: user
+    timeout-minutes: 90
     steps:
       - name: 🔀 random delay 0-300 seconds
         run: sleep $((RANDOM % 301))
 
       - name: 🔌 Check out code
-        uses: actions/checkout@main
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: 🔨 Setup Node.js environment
-        uses: actions/setup-node@main
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 18
           cache: npm
@@ -29,22 +36,26 @@ jobs:
         if: vars.debug == '1'
         run: |
           echo "CLOUD189_VERBOSE=1" >> $GITHUB_ENV
-      
+
       - name: 📹 Restore cached Cookie
         id: cache-cookie-restore
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: .token
           key: cloud189-token-${{ hashFiles('.token/*.json') }}
           restore-keys: cloud189-token-
 
+      # 只注入签到真正需要的凭据（本仓库仅有 TY_ACCOUNTS 一项），
+      # 不再用 toJSON(secrets) 把全部 secret 倒进 .env。
       - name: 🔧 Init secrets
-        uses: shine1594/secrets-to-env-action@master
-        with:
-          secrets: ${{ toJSON(secrets) }}
-          secrets_env: production
-          prefix_prod: ""
-          file_name_prod: .env
+        env:
+          TY_ACCOUNTS: ${{ secrets.TY_ACCOUNTS }}
+        run: |
+          if [ -z "$TY_ACCOUNTS" ]; then
+            echo "::error::缺少 TY_ACCOUNTS（Settings → Secrets → Actions）"
+            exit 1
+          fi
+          node -e "require('fs').writeFileSync('.env', 'TY_ACCOUNTS=' + JSON.stringify(process.env.TY_ACCOUNTS) + '\n')"
 
       - name: 📡 Init dependencies
         run: npm install
@@ -70,12 +81,23 @@ jobs:
           console.log('Found ' + valid.length + ' valid account(s)');
           "
 
+      # 原本用 nick-fields/retry@master 做重试，改成脚本内重试，
+      # 少一个第三方 action，行为保持一致（最多 3 次）。
       - name: 🚀 Run
-        uses: nick-fields/retry@master
-        with:
-          timeout_minutes: 30
-          max_attempts: 3
-          command: npm start
+        timeout-minutes: 60
+        run: |
+          for attempt in 1 2 3; do
+            echo "::group::第 ${attempt} 次执行"
+            if npm start; then
+              echo "::endgroup::"
+              exit 0
+            fi
+            echo "::endgroup::"
+            echo "::warning::第 ${attempt} 次执行失败"
+            sleep 15
+          done
+          echo "::error::签到连续 3 次失败"
+          exit 1
 
       - name: 🔑 Compute token hash
         if: always()
@@ -85,7 +107,7 @@ jobs:
 
       - name: 📹 Save cached Cookie
         if: always() && env.TOKEN_HASH != ''
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: .token
           key: cloud189-token-${{ env.TOKEN_HASH }}
@@ -93,17 +115,8 @@ jobs:
       - name: 🚗 Keep Running
         if: github.event_name == 'schedule'
         run: |
-          git config --local user.email "${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com"
-          git config --local user.name "${{ github.actor }}"
-          git remote set-url origin https://${{ github.actor }}:${{ github.token }}@github.com/${{ github.repository }}
+          git config user.name "41898282+github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git pull --rebase --autostash
           git commit --allow-empty -m "Keep Running..."
           git push
-
-      - name: 🎉 Delete old workflow run
-        uses: Mattraks/delete-workflow-runs@main
-        with:
-          token: ${{ github.token }}
-          repository: ${{ github.repository }}
-          retain_days: 7
-          keep_minimum_runs: 50
